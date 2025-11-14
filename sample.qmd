@@ -1,0 +1,189 @@
+```{r}
+library(tidyverse)
+library(broom)
+```
+
+```{r}
+dots <- read_csv("dots.csv", col_names = c("x", "y"))
+data <- dots |>
+  filter(x > 300, y < 1620)
+axis_y <- dots |>
+  filter(x < 300, y < 1620)
+axis_x <- dots |>
+  filter(x > 300, x < 1230, y > 1600)
+
+ggplot(dots, aes(x, y)) +
+  geom_point(size = 2, color = "cyan", alpha = .5) +
+  geom_point(data = data) +
+  geom_point(data = axis_x, color = "blue") +
+  geom_point(data = axis_y, color = "red")
+```
+
+```{r}
+axis_y <- axis_y |>
+  arrange(desc(y)) |>
+  transmute(
+    y,
+    v = unique(c(
+      seq(0.2, 1, 0.1),
+      seq(1, 3, 0.1),
+      seq(3, 10, 0.5),
+      seq(10, 21, 1)
+    ))
+  )
+
+axis_x <- axis_x |>
+  arrange(x) |>
+  transmute(x, age = seq(1, 21, 0.25))
+```
+
+```{r}
+inv_x <- approxfun(axis_x$x, axis_x$age)
+inv_y <- approxfun(axis_y$y, axis_y$v)
+
+data |>
+  mutate(age = inv_x(x), v = inv_y(y)) |>
+  ggplot(aes(age, v)) +
+  geom_point() +
+  scale_x_continuous(breaks = seq(0, 21, 1)) +
+  scale_y_log10()
+```
+
+```{r}
+distance <- function(data, x0, y0, xW = 1, yW = 1) {
+  sqrt(xW * (data$x - x0)^2 + yW * (data$y - y0)^2)
+}
+
+closest_right <- function(data, x0 = NULL, y0 = NULL, xW = 1, yW = 1) {
+  d <- distance(data, x0, y0, xW, yW)
+  r <- data$x - x0 > 0
+  data[d == min(d[r]) & r, ]
+}
+
+
+find_shape <- function(data, x0, y0, n) {
+  found <- res <- closest(data, x0, y0)
+
+  for (i in seq(n - 1)) {
+    data <- anti_join(data, found, join_by(x, y))
+    found <- closest_right(data, found$x, found$y, 0.1, 1)
+    res <- bind_rows(res, found)
+  }
+
+  res
+}
+
+find_shapes <- function(data, x0, y0, m, n) {
+  found <- res <- find_shape(data, x0, y0, n) |>
+    mutate(i = 1)
+
+  for (i in seq(m - 1)) {
+    data <- anti_join(data, found, join_by(x, y))
+    found <- find_shape(data, x0, y0, n) |>
+      mutate(i = i + 1)
+    res <- bind_rows(res, found)
+  }
+
+  res
+}
+
+shapes <- find_shapes(data, 300, 1600, m = 5, n = 20) |>
+  transmute(
+    p = recode(i, `1` = 2, `2` = 16, `3` = 50, `4` = 84, `5` = 98),
+    x,
+    y
+  )
+
+ggplot(shapes, aes(x, y)) +
+  geom_point(aes(color = factor(p)))
+```
+
+```{r}
+ps <- shapes |>
+  mutate(age = inv_x(x), v = inv_y(y)) |>
+  nest(data = -p) |>
+  mutate(
+    f = map(data, ~ splinefun(.x$age, .x$v, method = "natural", ties = mean))
+  )
+
+ps |>
+  mutate(tidy = map(f, ~ tibble(age = seq(1, 19, .1), v = .x(age)))) |>
+  unnest(tidy) |>
+  ggplot(aes(age, v, color = factor(p))) +
+  geom_point(data = mutate(shapes, age = inv_x(x), v = inv_y(y))) +
+  geom_line() +
+  scale_y_log10()
+
+ps <- ps |>
+  select(p, f) |>
+  deframe()
+```
+
+```{r}
+data <- tibble(x = seq(2, 19, .25))
+
+data |>
+  mutate(m = ps$`50`(x), u1 = ps$`84`(x), l1 = ps$`16`(x)) |>
+  ggplot(aes(x)) +
+  geom_line(aes(y = u1), color = "red") +
+  geom_line(aes(y = m)) +
+  geom_line(aes(y = l1), color = "blue") +
+  scale_y_log10()
+
+fit <- data |>
+  mutate(m = ps$`50`(x), u1 = ps$`84`(x), l1 = ps$`16`(x)) |>
+  mutate(across(c(m, u1, l1), log)) |>
+  mutate(u1est = u1 - m, l1est = m - l1, est = (u1est + l1est) / 2) |>
+  transmute(x, m, u1, l1, s = est)
+
+fit |>
+  mutate(u1_fit = qnorm(pnorm(1), m, s), l1_fit = qnorm(pnorm(-1), m, s)) |>
+  mutate(across(-x, exp)) |>
+  ggplot(aes(x)) +
+  geom_line(aes(y = m)) +
+  geom_line(aes(y = u1), color = "red") +
+  geom_line(aes(y = u1_fit), color = "red", lty = 2) +
+  geom_line(aes(y = l1), color = "blue") +
+  geom_line(aes(y = l1_fit), color = "blue", lty = 2) +
+  scale_y_log10()
+```
+
+```{r}
+data <- tibble(x = rep_len(fit$x, 1e5), y = exp(rnorm(1e5, fit$m, fit$s)))
+
+ggplot(data, aes(x, y)) +
+  geom_point(size = 3, alpha = .02) +
+  # geom_density2d_filled() +
+  # geom_bin_2d() +
+  stat_function(fun = ps$`50`, lwd = 2) +
+  stat_function(fun = ps$`84`, lwd = 2, color = "red") +
+  stat_function(fun = ps$`16`, lwd = 2, color = "blue") +
+  scale_y_log10()
+```
+
+```{r}
+data <- data |>
+  rename(age = x, v = y)
+
+write_csv(data, "100k.csv")
+
+data <- data |>
+  sample_n(1e4)
+
+write_csv(data, "10k.csv")
+
+data <- data |>
+  sample_n(1e3)
+
+write_csv(data, "1k.csv")
+
+data <- data |>
+  sample_n(5e2)
+
+write_csv(data, "500.csv")
+
+data <- data |>
+  sample_n(2.5e2)
+
+write_csv(data, "250.csv")
+```
