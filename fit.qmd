@@ -1,0 +1,186 @@
+---
+format:
+  html:
+    embed-resources: true
+    fig-width: 8
+    fig-height: 6
+---
+
+```{r}
+library(tidyverse)
+library(gamlss)
+```
+
+```{r}
+data <- read_csv("1k.csv")
+ps <- read_rds("ps.rds")
+```
+
+```{r}
+ggplot(data, aes(age, v)) +
+  geom_point() +
+  stat_function(fun = ps$`50`, lwd = 1) +
+  stat_function(fun = ps$`84`, lwd = 1, color = "red") +
+  stat_function(fun = ps$`16`, lwd = 1, color = "blue") +
+  scale_y_log10()
+```
+
+```{r}
+fit <- lms(v, age, families = "BCCGo", data = data)
+fit$mu.df
+fit$sigma.df
+fit$nu.df
+
+centiles(
+  fit,
+  xvar = data$age,
+  cent = c(16, 50, 84),
+  col.centiles = c("blue", "black", "red"),
+  lwd.centiles = 3
+)
+curve(ps$`16`(x), col = "cyan", lwd = 2, add = T)
+curve(ps$`50`(x), col = "cyan", lwd = 2, add = T)
+curve(ps$`84`(x), col = "cyan", lwd = 2, add = T)
+```
+
+```{r}
+fit_data <- data |>
+  mutate(v = log(v + 0.5) + 3)
+
+fit <- lms(v, age, families = "BCCGo", data = fit_data)
+fit$mu.df
+fit$sigma.df
+fit$nu.df
+
+centiles(
+  fit,
+  xvar = fit_data$age,
+  cent = c(16, 50, 84),
+  col.centiles = c("blue", "black", "red"),
+  lwd.centiles = 3
+)
+curve(log(ps$`16`(x) + 0.5) + 3, col = "cyan", lwd = 2, add = T)
+curve(log(ps$`50`(x) + 0.5) + 3, col = "cyan", lwd = 2, add = T)
+curve(log(ps$`84`(x) + 0.5) + 3, col = "cyan", lwd = 2, add = T)
+```
+
+```{r}
+fit_data <- data |>
+  mutate(v = log(v + 0.5) + 3)
+
+fit <- lms(
+  v,
+  age,
+  families = "BCCGo",
+  data = fit_data,
+  trans.x = T,
+  mu.df = 3,
+  sigma.df = 1.75,
+  nu.df = 1
+)
+
+centiles(
+  fit,
+  xvar = fit_data$age,
+  cent = c(16, 50, 84),
+  col.centiles = c("blue", "black", "red"),
+  lwd.centiles = 3
+)
+curve(log(ps$`16`(x) + 0.5) + 3, col = "cyan", lwd = 2, add = T)
+curve(log(ps$`50`(x) + 0.5) + 3, col = "cyan", lwd = 2, add = T)
+curve(log(ps$`84`(x) + 0.5) + 3, col = "cyan", lwd = 2, add = T)
+```
+
+```{r}
+findPower <- function(
+  y,
+  x,
+  data = NULL,
+  lim.trans = c(0, 1.5),
+  prof = FALSE,
+  k = 2,
+  c.crit = 0.01,
+  step = 0.1
+) {
+  ylab <- deparse(substitute(y))
+  xlab <- deparse(substitute(x))
+  y <- if (!is.null(data)) {
+    get(deparse(substitute(y)), envir = as.environment(data))
+  } else {
+    y
+  }
+  x <- if (!is.null(data)) {
+    get(deparse(substitute(x)), envir = as.environment(data))
+  } else {
+    x
+  }
+  cat("*** Checking for transformation for x ***", "\n")
+  ptrans <- function(x, p) {
+    if (abs(p) <= 1e-04) {
+      log(x)
+    } else {
+      I(x^p)
+    }
+  }
+  fn <- function(p) {
+    GAIC(gamlss(y ~ cs(ptrans(x, p), 3), c.crit = c.crit, trace = FALSE), k = k)
+  }
+  if (prof) {
+    pp <- seq(lim.trans[1], lim.trans[2], step)
+    pdev <- rep(0, length(pp))
+    for (i in 1:length(pp)) {
+      pdev[i] <- fn(pp[i])
+    }
+    plot(pdev ~ pp, type = "l")
+    points(pdev ~ pp, col = "blue")
+    par <- pp[which.min(pdev)]
+    cat("*** power parameters ", par, "***", " \n")
+  } else {
+    fn <- function(p) {
+      GAIC(
+        gamlss(y ~ cs(ptrans(x, p), 3), c.crit = c.crit, trace = FALSE),
+        k = k
+      )
+    }
+    par <- optimise(fn, lower = lim.trans[1], upper = lim.trans[2])$minimum
+    cat("*** power parameters ", par, "***", " \n")
+  }
+  par
+}
+```
+
+```{r}
+fit_data <- data |>
+  mutate(v = log(v + 0.5) + 3)
+
+findPower(
+  v,
+  age,
+  fit_data,
+  lim.trans = c(0, 3),
+  prof = TRUE,
+  k = 2,
+  c.crit = 0.001,
+  step = 0.01
+)
+
+fit <- gamlss(
+  formula = v ~ cs(I(age^2.45), df = 3),
+  sigma.formula = ~ cs(I(age^2.45), df = 1.75),
+  nu.formula = ~ cs(I(age^2.45), df = 1),
+  # tau.fix = T,
+  family = BCCG(),
+  data = fit_data
+)
+
+centiles(
+  fit,
+  xvar = fit_data$age,
+  cent = c(16, 50, 84),
+  col.centiles = c("blue", "black", "red"),
+  lwd.centiles = 3
+)
+curve(log(ps$`16`(x) + 0.5) + 3, col = "cyan", lwd = 2, add = T)
+curve(log(ps$`50`(x) + 0.5) + 3, col = "cyan", lwd = 2, add = T)
+curve(log(ps$`84`(x) + 0.5) + 3, col = "cyan", lwd = 2, add = T)
+```
