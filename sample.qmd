@@ -62,7 +62,7 @@ closest_right <- function(data, x0 = NULL, y0 = NULL, xW = 1, yW = 1) {
 
 
 find_shape <- function(data, x0, y0, n) {
-  found <- res <- closest(data, x0, y0)
+  found <- res <- closest_right(data, x0, y0)
 
   for (i in seq(n - 1)) {
     data <- anti_join(data, found, join_by(x, y))
@@ -117,6 +117,8 @@ ps |>
 ps <- ps |>
   select(p, f) |>
   deframe()
+
+write_rds(ps, "ps.rds")
 ```
 
 ```{r}
