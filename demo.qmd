@@ -1,0 +1,45 @@
+---
+format:
+  html:
+    embed-resources: true
+---
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+data <- read_csv("100k.csv")
+ps <- read_rds("ps.rds")
+```
+
+```{r}
+ggplot(data, aes(age, v)) +
+  geom_point() +
+  stat_function(fun = ps$`50`, lwd = 1) +
+  stat_function(fun = ps$`84`, lwd = 1, color = "red") +
+  stat_function(fun = ps$`16`, lwd = 1, color = "blue") +
+  scale_y_log10()
+```
+
+```{r}
+fit <- data |>
+  group_by(age) |>
+  summarise(
+    p84 = quantile(v, .84),
+    p50 = quantile(v, .50),
+    p16 = quantile(v, .16)
+  )
+```
+
+```{r}
+ggplot(data, aes(age, v)) +
+  geom_point() +
+  geom_line(data = fit, aes(y = p50), lwd = 1) +
+  geom_line(data = fit, aes(y = p84), lwd = 1, color = "red") +
+  geom_line(data = fit, aes(y = p16), lwd = 1, color = "blue") +
+  stat_function(fun = ps$`50`, lwd = 1) +
+  stat_function(fun = ps$`84`, lwd = 1, color = "red") +
+  stat_function(fun = ps$`16`, lwd = 1, color = "blue") +
+  scale_y_log10()
+```
