@@ -112,7 +112,9 @@ ps |>
   ggplot(aes(age, v, color = factor(p))) +
   geom_point(data = mutate(shapes, age = inv_x(x), v = inv_y(y))) +
   geom_line() +
-  scale_y_log10()
+  scale_x_continuous(breaks = seq(0, 19, 1)) +
+  scale_y_log10() +
+  annotation_logticks(sides = "l")
 
 ps <- ps |>
   select(p, f) |>
