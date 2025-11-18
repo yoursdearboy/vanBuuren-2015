@@ -1,0 +1,52 @@
+---
+format:
+  html:
+    embed-resources: true
+    fig-width: 8
+    fig-height: 6
+---
+
+```{r}
+library(tidyverse)
+library(gamlss)
+```
+
+```{r}
+grid <- expand_grid(
+  x = seq(2.7, 6, 0.1),
+  mu = seq(3, 5, .5),
+  sigma = seq(0.03, 0.12, 0.03),
+  nu = seq(-4, 4, 1)
+) |>
+  mutate(v = exp(x - 3) - 0.5)
+
+prob <- grid |>
+  mutate(d = dBCCGo(x, mu, sigma, nu), p = pBCCGo(x, mu, sigma, nu))
+```
+
+```{r, fig.width=12, fig.height=10}
+ggplot(prob, aes(v, d)) +
+  geom_line(aes(color = factor(nu))) +
+  scale_color_brewer(type = "seq", palette = "RdYlBu") +
+  scale_x_log10(lim = c(0.2, 30), expand = c(0, 0)) +
+  scale_y_continuous(lim = c(0, 1.5), oob = scales::oob_keep) +
+  facet_grid(sigma ~ mu, scales = "free") +
+  annotation_logticks(sides = "b") +
+  theme_bw(base_size = 14)
+```
+
+```{r, fig.width=12, fig.height=10}
+ggplot(prob, aes(v, p)) +
+  geom_hline(
+    yintercept = c(0.02, 0.16, 0.84, 0.98),
+    linewidth = 0.33,
+    lty = 5
+  ) +
+  geom_line(aes(color = factor(nu))) +
+  scale_color_brewer(type = "seq", palette = "RdYlBu") +
+  scale_x_log10(lim = c(0.2, 30), expand = c(0, 0)) +
+  scale_y_continuous(lim = c(0, 1), breaks = seq(0, 1, 0.2)) +
+  facet_grid(sigma ~ mu, scales = "free") +
+  annotation_logticks(sides = "b") +
+  theme_bw(base_size = 14)
+```
