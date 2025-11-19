@@ -1,0 +1,131 @@
+---
+format:
+  html:
+    embed-resources: true
+    fig-width: 8
+    fig-height: 6
+---
+
+```{r}
+library(tidyverse)
+library(gamlss)
+```
+
+```{r}
+abcdefun <- function(fit, x, abcde) {
+  data <- eval(fit$call$data)
+  x <- data[[x]]
+  y <- fitted(fit, abcde)
+  splinefun(x, y, method = "natural")
+}
+
+cole_trans <- function(fit, x, tol = 1e-10) {
+  data <- eval(fit$call$data)
+  xm <- cbind(
+    data[[x]],
+    fitted(fit, "mu")
+  )
+  xm <- xm[!duplicated(xm[, 1]), ]
+  xm <- xm[order(xm[, 1]), ]
+  dd <- apply(xm, 2, diff)
+  v <- dd[, 2] / dd[, 1]
+  v <- sum(abs(dd[, 2])) / sum(dd[, 1])
+  dt <- abs(dd[, 2]) / v
+  t <- xm[1, 1] + c(0, cumsum(dt))
+  x <- xm[, 1]
+  m <- xm[, 2]
+  stopifnot(abs(dd[, 2] / dt - v) <= tol)
+  transform <- function(y) sapply(y, function(yy) t[which.min(abs(x - yy))])
+  inverse <- function(y) sapply(y, function(yy) x[which.min(abs(t - yy))])
+  # transform <- approxfun(x, t)
+  # inverse <- approxfun(t, x)
+  list(x = x, m = m, t = t, v = v, transform = transform, inverse = inverse)
+}
+```
+
+```{r}
+data <- read_csv("sample/v1/500.csv")
+vb <- read_csv2("lms.csv")
+```
+
+```{r}
+fit_data <- data |>
+  mutate(v = log10(v + 0.5) + 3)
+```
+
+```{r}
+fit <- gamlss(
+  formula = v ~ cs(age, df = 3),
+  sigma.formula = ~ cs(age, df = 1.75),
+  nu.formula = ~ cs(age, df = 1),
+  family = BCCG(),
+  data = fit_data
+)
+```
+
+```{r}
+par(mfrow = c(2, 2))
+
+curve(abcdefun(fit, "age", "mu")(x), 0, 21)
+lines(vb$age, vb$Mu, col = "green")
+
+curve(abcdefun(fit, "age", "sigma")(x), 0, 21)
+lines(vb$age, vb$Su, col = "green")
+
+curve(abcdefun(fit, "age", "nu")(x), 0, 21)
+lines(vb$age, vb$Lu, col = "green")
+
+par(mfrow = c(1, 1))
+centiles(
+  fit,
+  xvar = fit_data$age,
+  cent = c(16, 50, 84),
+  col.centiles = c("blue", "black", "red"),
+  lwd.centiles = 3
+)
+lines(vb$age, qBCCG(0.16, vb$Mu, vb$Su, vb$Lu), col = "cyan", lwd = 2)
+lines(vb$age, qBCCG(0.5, vb$Mu, vb$Su, vb$Lu), col = "cyan", lwd = 2)
+lines(vb$age, qBCCG(0.84, vb$Mu, vb$Su, vb$Lu), col = "cyan", lwd = 2)
+```
+
+```{r}
+ct <- cole_trans(fit, "age")
+
+fit_data <- fit_data %>%
+  mutate(t = ct$transform(age))
+```
+
+```{r}
+fit <- gamlss(
+  formula = v ~ cs(t, df = 3),
+  sigma.formula = ~ cs(t, df = 1.75),
+  nu.formula = ~ cs(t, df = 1),
+  family = BCCG(),
+  data = fit_data
+)
+```
+
+```{r}
+par(mfrow = c(2, 2))
+
+curve(abcdefun(fit, "age", "mu")(x), 0, 21)
+lines(vb$age, vb$Mu, col = "green")
+
+curve(abcdefun(fit, "age", "sigma")(x), 0, 21)
+lines(vb$age, vb$Su, col = "green")
+
+curve(abcdefun(fit, "age", "nu")(x), 0, 21)
+lines(vb$age, vb$Lu, col = "green")
+
+par(mfrow = c(1, 1))
+centiles(
+  fit,
+  xvar = fit_data$age,
+  cent = c(16, 50, 84),
+  col.centiles = c("blue", "black", "red"),
+  lwd.centiles = 3
+)
+lines(vb$age, qBCCG(0.16, vb$Mu, vb$Su, vb$Lu), col = "cyan", lwd = 2)
+lines(vb$age, qBCCG(0.5, vb$Mu, vb$Su, vb$Lu), col = "cyan", lwd = 2)
+lines(vb$age, qBCCG(0.84, vb$Mu, vb$Su, vb$Lu), col = "cyan", lwd = 2)
+```
