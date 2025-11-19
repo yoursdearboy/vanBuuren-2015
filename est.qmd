@@ -1,0 +1,154 @@
+---
+format:
+  html:
+    embed-resources: true
+    fig-width: 8
+    fig-height: 6
+---
+
+```{r}
+library(tidyverse)
+library(gamlss)
+```
+
+```{r}
+cole_trans <- function(fit, x, tol = 1e-10) {
+  data <- eval(fit$call$data)
+  xm <- cbind(
+    data[[x]],
+    fitted(fit, "mu")
+  )
+  xm <- xm[!duplicated(xm[, 1]), ]
+  xm <- xm[order(xm[, 1]), ]
+  dd <- apply(xm, 2, diff)
+  v <- dd[, 2] / dd[, 1]
+  v <- sum(abs(dd[, 2])) / sum(dd[, 1])
+  dt <- abs(dd[, 2]) / v
+  t <- xm[1, 1] + c(0, cumsum(dt))
+  x <- xm[, 1]
+  m <- xm[, 2]
+  stopifnot(abs(dd[, 2] / dt - v) <= tol)
+  transform <- function(y) sapply(y, function(yy) t[which.min(abs(x - yy))])
+  inverse <- function(y) sapply(y, function(yy) x[which.min(abs(t - yy))])
+  # transform <- approxfun(x, t)
+  # inverse <- approxfun(t, x)
+  list(x = x, m = m, t = t, v = v, transform = transform, inverse = inverse)
+}
+```
+
+```{r}
+data <- read_csv("sample/v1/500.csv") |>
+  mutate(age = floor(age))
+vb <- read_csv2("lms.csv")
+```
+
+```{r}
+fit_data <- data |>
+  mutate(v = log10(v + 0.5) + 3)
+```
+
+```{r}
+fit <- gamlss(
+  formula = v ~ cs(age, df = 3),
+  sigma.formula = ~ cs(age, df = 1.75),
+  nu.formula = ~ cs(age, df = 1),
+  family = BCCG(),
+  data = fit_data
+)
+
+ct <- cole_trans(fit, "age")
+
+fit_data <- fit_data %>%
+  mutate(t = ct$transform(age))
+
+fit <- gamlss(
+  formula = v ~ cs(t, df = 3),
+  sigma.formula = ~ cs(t, df = 1.75),
+  nu.formula = ~ cs(t, df = 1),
+  family = BCCG(),
+  data = fit_data
+)
+```
+
+```{r}
+est <- fit_data |>
+  group_by(age = floor(age)) |>
+  summarise(m = mean(v), s = sd(v)) |>
+  mutate(
+    p16 = qnorm(0.16, m, s),
+    p50 = qnorm(0.50, m, s),
+    p84 = qnorm(0.84, m, s)
+  )
+
+est <- list(
+  p16 = splinefun(est$age, est$p16),
+  p50 = splinefun(est$age, est$p50),
+  p84 = splinefun(est$age, est$p84)
+)
+```
+
+```{r}
+centiles(
+  fit,
+  xvar = fit_data$age,
+  cent = c(16, 50, 84),
+  col.centiles = c("blue", "black", "red"),
+  lwd.centiles = 3
+)
+
+curve(log10(ps$`16`(x) + 0.5) + 3, col = "cyan", lwd = 2, add = T)
+curve(log10(ps$`50`(x) + 0.5) + 3, col = "cyan", lwd = 2, add = T)
+curve(log10(ps$`84`(x) + 0.5) + 3, col = "cyan", lwd = 2, add = T)
+
+curve(est$`p16`(x), col = "orange", lwd = 2, add = T)
+curve(est$`p50`(x), col = "orange", lwd = 2, add = T)
+curve(est$`p84`(x), col = "orange", lwd = 2, add = T)
+```
+
+
+```{r}
+comp <- vb |>
+  filter(age %in% ((1:18) + 0.5)) |>
+  mutate(t = ct$trans(age))
+
+comp |>
+  mutate(
+    Mu_fit = predict(fit, "mu", newdata = transmute(comp, age, v = 0, t)),
+    Su_fit = predict(
+      fit,
+      "sigma",
+      newdata = transmute(comp, age, v = 0, t),
+      type = "response"
+    ),
+    Lu_fit = predict(fit, "nu", newdata = transmute(comp, age, v = 0, t))
+  ) |>
+  left_join(transmute(est, age = round(age + 0.5, 1), m, s), join_by(age)) |>
+  mutate(
+    q75_fit = qBCCG(0.75, Mu_fit, Su_fit, Lu_fit),
+    d75_fit = 0.75 - pBCCG(q75_fit, Mu, Su, Lu),
+    q75_est = qnorm(0.75, m, s),
+    d75_est = 0.75 - pBCCG(q75_est, Mu, Su, Lu),
+    q84_fit = qBCCG(0.84, Mu_fit, Su_fit, Lu_fit),
+    d84_fit = 0.84 - pBCCG(q84_fit, Mu, Su, Lu),
+    q84_est = qnorm(0.84, m, s),
+    d84_est = 0.84 - pBCCG(q84_est, Mu, Su, Lu),
+    q90_fit = qBCCG(0.90, Mu_fit, Su_fit, Lu_fit),
+    d90_fit = 0.90 - pBCCG(q90_fit, Mu, Su, Lu),
+    q90_est = qnorm(0.90, m, s),
+    d90_est = 0.90 - pBCCG(q90_est, Mu, Su, Lu),
+    q95_fit = qBCCG(0.95, Mu_fit, Su_fit, Lu_fit),
+    d95_fit = 0.95 - pBCCG(q95_fit, Mu, Su, Lu),
+    q95_est = qnorm(0.95, m, s),
+    d95_est = 0.95 - pBCCG(q95_est, Mu, Su, Lu)
+  ) |>
+  select(age, starts_with("d")) |>
+  gather(key, value, -age) |>
+  mutate(
+    p = str_split(key, "_", simplify = T)[, 1],
+    type = str_split(key, "_", simplify = T)[, 2]
+  ) |>
+  ggplot(aes(age, value)) +
+  geom_hline(yintercept = 0) +
+  geom_line(aes(color = factor(type))) +
+  facet_wrap(~p)
+```
