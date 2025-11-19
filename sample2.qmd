@@ -1,0 +1,74 @@
+---
+format:
+  html:
+    embed-resources: true
+    fig-width: 8
+    fig-height: 6
+---
+
+```{r}
+library(tidyverse)
+library(gamlss)
+```
+
+```{r}
+vb <- read_csv2("lms.csv")
+ps <- read_rds("ps.rds")
+```
+
+```{r}
+N <- 1e3
+```
+
+```{r}
+data <- vb |>
+  slice(rep(1:n(), each = N)) |>
+  mutate(v = rBCCG(n(), Mu, Su, Lu))
+```
+
+```{r}
+data <- data |>
+  mutate(v = 10^(v - 3) - 0.5)
+
+data <- data |>
+  filter(0 < v & v < 50)
+```
+
+```{r}
+ggplot(data, aes(age, v)) +
+  geom_point() +
+  stat_function(fun = ps$`50`, lwd = 1) +
+  stat_function(fun = ps$`84`, lwd = 1, color = "red") +
+  stat_function(fun = ps$`16`, lwd = 1, color = "blue") +
+  scale_y_log10(labels = scales::label_number())
+```
+
+```{r}
+data <- data |>
+  select(age, v)
+
+data <- data |>
+  sample_n(1e5)
+
+write_csv(data, "sample/v2/100k.csv")
+
+data <- data |>
+  sample_n(1e4)
+
+write_csv(data, "sample/v2/10k.csv")
+
+data <- data |>
+  sample_n(1e3)
+
+write_csv(data, "sample/v2/1k.csv")
+
+data <- data |>
+  sample_n(5e2)
+
+write_csv(data, "sample/v2/500.csv")
+
+data <- data |>
+  sample_n(2.5e2)
+
+write_csv(data, "sample/v2/250.csv")
+```

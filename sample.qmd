@@ -169,25 +169,25 @@ ggplot(data, aes(x, y)) +
 data <- data |>
   rename(age = x, v = y)
 
-write_csv(data, "100k.csv")
+write_csv(data, "sample/v1/100k.csv")
 
 data <- data |>
   sample_n(1e4)
 
-write_csv(data, "10k.csv")
+write_csv(data, "sample/v1/10k.csv")
 
 data <- data |>
   sample_n(1e3)
 
-write_csv(data, "1k.csv")
+write_csv(data, "sample/v1/1k.csv")
 
 data <- data |>
   sample_n(5e2)
 
-write_csv(data, "500.csv")
+write_csv(data, "sample/v1/500.csv")
 
 data <- data |>
   sample_n(2.5e2)
 
-write_csv(data, "250.csv")
+write_csv(data, "sample/v1/250.csv")
 ```
